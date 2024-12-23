@@ -3,4 +3,6 @@
 # Run Script
 PYTHON_SCRIPT="../scripts/dataset.py"
 
-python $PYTHON_SCRIPT shapenet '/Users/kimshan/Public/data/shapenetcore_partanno_segmentation_benchmark_v0'
+python $PYTHON_SCRIPT \
+    --dataset_path "/Users/kimshan/Public/data/blindpoint/source" \
+    --method "gb"

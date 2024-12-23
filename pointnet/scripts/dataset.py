@@ -5,7 +5,7 @@ import os.path
 import torch
 import numpy as np
 import sys
-from tqdm import tqdm 
+from tqdm import tqdm
 import json
 from plyfile import PlyData, PlyElement
 
@@ -201,6 +201,7 @@ if __name__ == '__main__':
         d = ShapeNetDataset(root = datapath, class_choice = ['Chair'])
         print(len(d))
         ps, seg = d[0]
+        breakpoint()
         print(ps.size(), ps.type(), seg.size(),seg.type())
 
         d = ShapeNetDataset(root = datapath, classification = True)
