@@ -62,6 +62,19 @@ def main():
 
     # Print model architecture
     print(model)
+    # ImageProcessingNet(
+    # (conv_layers): ModuleList(
+    #     (0): Conv2d(3, 24, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+    #     (1): Conv2d(24, 24, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
+    #     (2): Conv2d(24, 24, kernel_size=(3, 3), stride=(4, 4), padding=(1, 1))
+    #     (3): Conv2d(24, 24, kernel_size=(3, 3), stride=(8, 8), padding=(1, 1))
+    #     (4): Conv2d(24, 24, kernel_size=(3, 3), stride=(16, 16), padding=(1, 1))
+    #     (5): Conv2d(24, 24, kernel_size=(3, 3), stride=(32, 32), padding=(1, 1))
+    #     (6): Conv2d(24, 24, kernel_size=(3, 3), stride=(64, 64), padding=(1, 1))
+    #     (7): Conv2d(24, 24, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+    #     (8): Conv2d(24, 3, kernel_size=(1, 1), stride=(1, 1))
+    # )
+    # )
 
 if __name__ == "__main__":
     main()
