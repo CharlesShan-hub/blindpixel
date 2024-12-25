@@ -14,10 +14,8 @@ class TrainOptions(Options):
                 "dataset_path": "path/to/dataset",
 
                 # Model Option
-                "image_size": 28,
-                "num_classes": 10,
-                "use_relu": False,
-                "use_max_pool": False,
+                "width": 328,
+                "height": 254,
 
                 # Train Config
                 "seed": 42,

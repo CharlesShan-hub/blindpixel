@@ -15,3 +15,4 @@ for k, info in bs.get_all_proj_info().items():
         figsize = (120,20)
     )  
     bs.delete_info(info)
+
