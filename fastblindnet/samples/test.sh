@@ -17,7 +17,7 @@ RES_PATH="${BASE_PATH}/model/fastblindnet/ino"
 
 python $PYTHON_SCRIPT \
     --comment "fastblindnet on noisy INO with ReduceLROnPlateau on SGD" \
-    --model_path "${RES_PATH}/2024_12_24_21_31/checkpoints/40.pt" \
+    --model_path "${RES_PATH}/2024_12_26_19_55/checkpoints/18.pt" \
     --dataset_path "${BASE_PATH}/torchvision"\
     --width 328 \
     --height 254 \

@@ -2,6 +2,8 @@ import click
 from clib.dataset.fusion import INO
 import numpy as np
 from PIL import Image
+import torch
+from scipy.ndimage import binary_dilation
 
 class BlindPointINO(INO):
     def __init__(self, root, transform = None, download = False, mode = 'image',\
@@ -19,8 +21,9 @@ class BlindPointINO(INO):
     
         if self.transform:
             ir = self.transform(ir)
-            noise_mask = self.transform(noise_mask)
             ir_noisy = self.transform(ir_noisy)
+            noise_mask = self.transform(noise_mask)
+            noise_mask = torch.where(noise_mask != 0.0, torch.tensor(1.0, dtype=noise_mask.dtype, device=noise_mask.device), noise_mask)
 
         return ir_noisy,ir,noise_mask
     
@@ -43,10 +46,16 @@ class BlindPointINO(INO):
         pepper_mask = noise > (1 - self.pepper_prob)
         noisy_image[pepper_mask] = 0.0  # Black (minimum intensity)
 
+        # Dilation
+        structure_element = np.ones((3, 3), dtype=np.uint8)
+        dilated_salt_mask = binary_dilation(salt_mask, structure=structure_element)
+        dilated_pepper_mask = binary_dilation(pepper_mask, structure=structure_element)
+
         # Create a noise mask (1 where noise is added, 0 elsewhere)
-        noise_mask = np.logical_or(salt_mask, pepper_mask).astype(np.float32)
+        noise_mask = np.logical_or(salt_mask, pepper_mask).astype(np.uint8)
+        # noise_mask = np.logical_or(dilated_salt_mask, dilated_pepper_mask).astype(np.uint8)
         
-        return Image.fromarray((noisy_image*255).astype(np.uint8), mode="L"), Image.fromarray(noise_mask * 255, mode="L") 
+        return Image.fromarray((noisy_image*255).astype(np.uint8), mode="L"), Image.fromarray((noise_mask * 255), mode="L") 
 
 
 @click.command()
@@ -63,6 +72,8 @@ def main(**kwargs):
     for (idx, (ir_noisy,ir,noise_mask)) in enumerate(dataset):
         if idx // 100 == 0:
             print(ir.size,noise_mask.size)
+        # noise_mask.show()
+        # breakpoint()
 
 if __name__ == "__main__":
     main()

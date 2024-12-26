@@ -92,3 +92,20 @@ class TestOptions(Options):
                 "batch_size": 32,
             }
         )
+
+class InferenceOptions(Options):
+    def __init__(self):
+        super().__init__("FastBlindNet")
+        self.update(
+            {
+                # Utils
+                "comment": "",
+                "device": "cuda" if is_available() else "cpu",
+                "model_path": "path/to/model.ckpt",
+                "input_path": "path/to/dataset",
+
+                # Model Option
+                "width": 328,
+                "height": 254,
+            }
+        )

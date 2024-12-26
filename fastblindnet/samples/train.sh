@@ -23,11 +23,12 @@ python $PYTHON_SCRIPT \
     --dataset_path "${BASE_PATH}/torchvision" \
     --width 328 \
     --height 254 \
+    --use_mask False \
     --seed 32 \
-    --batch_size 16 \
-    --lr 0.3 \
+    --batch_size 4 \
+    --lr 0.001 \
     --max_epoch 100 \
-    --max_reduce 3 \
+    --max_reduce 4 \
     --factor 0.1 \
     --train_mode "Holdout" \
     --val 0.1 \

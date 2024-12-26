@@ -1,3 +1,4 @@
+import click
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -5,6 +6,41 @@ import numpy as np
 from clib.utils import *
 
 __all__ = ['FastBlindNet']
+
+def find_medians(x, k):
+    # x: (N, C, H, W)
+    #unfold the tensor into patches of size k x k
+    patches = F.unfold(x, kernel_size=(k, k), stride=1, padding=k//2)
+    #reshape patches to (N, C, k*k, H*W)
+    patches = patches.view(x.size(0), x.size(1), k*k, -1)
+    #sort patches along the k*k dimension
+    patches, _ = torch.sort(patches, dim=2)
+    #select the median value (k*k is odd, so we select the middle element)
+    median = patches[:, :, k*k//2, :]
+    return median
+
+class MedianPool2d(nn.Module):
+    def __init__(self, kernel_size=3):
+        super(MedianPool2d, self).__init__()
+        self.kernel_size = kernel_size
+
+    def forward(self, x):
+        # x: (N, C, H, W)
+        #apply find_medians for each channel
+        channels = torch.split(x, 1, dim=1)
+        medians = [find_medians(channel, self.kernel_size) for channel in channels]
+        #concatenate the channels back together
+        median = torch.cat(medians, dim=1)
+        #reshape to the original spatial dimensions
+        H, W = x.size(2), x.size(3)
+        median = median.view(-1, x.size(1), H, W)
+        return median
+
+# Example usage:
+# model = MedianPool2d(kernel_size=3)
+# input_tensor = torch.randn(1, 3, 28, 28)
+# output_tensor = model(input_tensor)
+
 
 class AdaptiveBatchNorm2d(nn.Module):
 
@@ -21,7 +57,7 @@ class AdaptiveBatchNorm2d(nn.Module):
         self.b = nn.Parameter(torch.zeros(1, 1, 1, 1))
 
     def forward(self, x):
-        return self.a * x + self.b * self.bn(x)
+        return self.a * x + self.b * self.bn(x) 
     
 class ConvBlock(nn.Module):
 
@@ -80,36 +116,46 @@ class ConvBlock(nn.Module):
         return self.convblk(inputs[0])
 
 class FastBlindNet(nn.Module):
-    def __init__(self):
+    def __init__(self, 
+                 unit_test: bool = False,
+                 use_mask: bool = False):
         """Initialization """
         super().__init__()
+        self.unit_test = unit_test
+        self.input_channels = 2 if use_mask else 1
 
         nbLayers = 24
 
-        self.conv1 = ConvBlock(1, nbLayers, 3, 1, 1)
+        self.median3 = MedianPool2d(3)
+        self.median5 = MedianPool2d(5)
+        self.conv1 = ConvBlock(self.input_channels, nbLayers, 3, 1, 1)
         self.conv2 = ConvBlock(nbLayers, nbLayers, 3, 2, 2)
         self.conv3 = ConvBlock(nbLayers, nbLayers, 3, 4, 4)
-        self.conv4 = ConvBlock(nbLayers, nbLayers, 3, 8, 8)
-        self.conv5 = ConvBlock(nbLayers, nbLayers, 3, 16, 16)
-        self.conv6 = ConvBlock(nbLayers, nbLayers, 3, 32, 32)
-        self.conv7 = ConvBlock(nbLayers, nbLayers, 3, 64, 64)
-        self.conv8 = ConvBlock(nbLayers, nbLayers, 3, 1, 1)
+        self.conv4 = ConvBlock(nbLayers+self.input_channels, nbLayers+self.input_channels, 3, 8, 8)
+        self.conv5 = ConvBlock(nbLayers+self.input_channels, nbLayers+self.input_channels, 3, 16, 16)
+        self.conv6 = ConvBlock(nbLayers+self.input_channels, nbLayers+self.input_channels, 3, 32, 32)
+        # self.conv7 = ConvBlock(nbLayers+self.input_channels, nbLayers+self.input_channels, 3, 64, 64)
+        self.conv8 = ConvBlock(nbLayers+self.input_channels, 1 if unit_test else nbLayers, 3, 1, 1)
         self.conv9 = nn.Conv2d(nbLayers, 1, kernel_size=1, dilation=1)
-
         self.weights_init(self.conv9)
 
     def forward(self, x):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = self.conv3(x)
+        y = self.median3(x)
+        y = self.conv1(y)
+        y = self.median3(y)
+        y = self.conv2(y)
+        y = self.conv3(y)
+        x = torch.cat((y,x),dim=1)
         x = self.conv4(x)
         x = self.conv5(x)
         x = self.conv6(x)
-        x = self.conv7(x)
+        # x = self.conv7(x)
         x = self.conv8(x)
-        x = self.conv9(x)
+        if self.unit_test:
+            return x
+        else:
+            return self.conv9(x)
 
-        return x
 
     def weights_init(self, m):
         """conv2d Init
@@ -118,72 +164,38 @@ class FastBlindNet(nn.Module):
             torch.nn.init.xavier_uniform_(m.weight)
             torch.nn.init.zeros_(m.bias)
 
-def main():
+@click.command()
+@click.option("--input_path", type=click.Path(exists=True), required=True)
+@click.option("--gt_path", type=click.Path(exists=True), required=True)
+@click.option("--mask_path", type=click.Path(exists=True), required=True)
+def main(input_path,gt_path,mask_path):
+    from clib.metrics.fusion import fused
+    from clib.utils import glance,path_to_gray,to_tensor
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # model = MedianPool2d(kernel_size=3).to(device)
+    # output_tensor = model(fused)
+    # glance([fused, output_tensor])
+
     from torchinfo import summary
 
     # Create model instance
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = FastBlindNet().to(device)
+    model = FastBlindNet(unit_test=True).to(device)
 
     # Print model architecture
-    summary(model, input_size=(1, 1, 500, 500))
+    summary(model, input_size=(1, 2, 500, 500))
+
+    # breakpoint()
+
+    noisy = to_tensor(path_to_gray(input_path)).to(device)
+    gt = to_tensor(path_to_gray(gt_path)).to(device)
+    mask = to_tensor(path_to_gray(mask_path)).to(device)
+    input_tensor = torch.cat((noisy,mask),dim=0).to(torch.float32).unsqueeze(0)
+
+    # print(input_tensor.shape)
+    # breakpoint()
+
+    glance([noisy, model(input_tensor).squeeze(0)])
 
 if __name__ == "__main__":
     main()
-    # kimshan@cMac ~/P/p/blindpixel (master)> /Users/kimshan/.local/micromamba/envs/pytorch2/bin/python3.12 /Users/kimshan/Public/project/blindpixel/fastblindnet/scripts/model.py            (pytorch2) 
-    # ===============================================================================================
-    # Layer (type:depth-idx)                        Output Shape              Param #
-    # ===============================================================================================
-    # FastBlindNet                                  [1, 1, 500, 500]          --
-    # ├─ConvBlock: 1-1                              [1, 24, 500, 500]         --
-    # │    └─Sequential: 2-1                        [1, 24, 500, 500]         --
-    # │    │    └─Conv2d: 3-1                       [1, 24, 500, 500]         240
-    # │    │    └─LeakyReLU: 3-2                    [1, 24, 500, 500]         --
-    # │    │    └─AdaptiveBatchNorm2d: 3-3          [1, 24, 500, 500]         50
-    # ├─ConvBlock: 1-2                              [1, 24, 500, 500]         --
-    # │    └─Sequential: 2-2                        [1, 24, 500, 500]         --
-    # │    │    └─Conv2d: 3-4                       [1, 24, 500, 500]         5,208
-    # │    │    └─LeakyReLU: 3-5                    [1, 24, 500, 500]         --
-    # │    │    └─AdaptiveBatchNorm2d: 3-6          [1, 24, 500, 500]         50
-    # ├─ConvBlock: 1-3                              [1, 24, 500, 500]         --
-    # │    └─Sequential: 2-3                        [1, 24, 500, 500]         --
-    # │    │    └─Conv2d: 3-7                       [1, 24, 500, 500]         5,208
-    # │    │    └─LeakyReLU: 3-8                    [1, 24, 500, 500]         --
-    # │    │    └─AdaptiveBatchNorm2d: 3-9          [1, 24, 500, 500]         50
-    # ├─ConvBlock: 1-4                              [1, 24, 500, 500]         --
-    # │    └─Sequential: 2-4                        [1, 24, 500, 500]         --
-    # │    │    └─Conv2d: 3-10                      [1, 24, 500, 500]         5,208
-    # │    │    └─LeakyReLU: 3-11                   [1, 24, 500, 500]         --
-    # │    │    └─AdaptiveBatchNorm2d: 3-12         [1, 24, 500, 500]         50
-    # ├─ConvBlock: 1-5                              [1, 24, 500, 500]         --
-    # │    └─Sequential: 2-5                        [1, 24, 500, 500]         --
-    # │    │    └─Conv2d: 3-13                      [1, 24, 500, 500]         5,208
-    # │    │    └─LeakyReLU: 3-14                   [1, 24, 500, 500]         --
-    # │    │    └─AdaptiveBatchNorm2d: 3-15         [1, 24, 500, 500]         50
-    # ├─ConvBlock: 1-6                              [1, 24, 500, 500]         --
-    # │    └─Sequential: 2-6                        [1, 24, 500, 500]         --
-    # │    │    └─Conv2d: 3-16                      [1, 24, 500, 500]         5,208
-    # │    │    └─LeakyReLU: 3-17                   [1, 24, 500, 500]         --
-    # │    │    └─AdaptiveBatchNorm2d: 3-18         [1, 24, 500, 500]         50
-    # ├─ConvBlock: 1-7                              [1, 24, 500, 500]         --
-    # │    └─Sequential: 2-7                        [1, 24, 500, 500]         --
-    # │    │    └─Conv2d: 3-19                      [1, 24, 500, 500]         5,208
-    # │    │    └─LeakyReLU: 3-20                   [1, 24, 500, 500]         --
-    # │    │    └─AdaptiveBatchNorm2d: 3-21         [1, 24, 500, 500]         50
-    # ├─ConvBlock: 1-8                              [1, 24, 500, 500]         --
-    # │    └─Sequential: 2-8                        [1, 24, 500, 500]         --
-    # │    │    └─Conv2d: 3-22                      [1, 24, 500, 500]         5,208
-    # │    │    └─LeakyReLU: 3-23                   [1, 24, 500, 500]         --
-    # │    │    └─AdaptiveBatchNorm2d: 3-24         [1, 24, 500, 500]         50
-    # ├─Conv2d: 1-9                                 [1, 1, 500, 500]          25
-    # ===============================================================================================
-    # Total params: 37,121
-    # Trainable params: 37,121
-    # Non-trainable params: 0
-    # Total mult-adds (Units.GIGABYTES): 9.18
-    # ===============================================================================================
-    # Input size (MB): 1.00
-    # Forward/backward pass size (MB): 770.00
-    # Params size (MB): 0.15
-    # Estimated Total Size (MB): 771.15
-    # ===============================================================================================

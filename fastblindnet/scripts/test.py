@@ -1,4 +1,5 @@
 import click
+import kornia
 from tqdm import tqdm
 import torch
 from torch.utils.data import DataLoader, random_split
@@ -37,7 +38,7 @@ class FastBlindNetTester(BaseInferencer):
             worker_init_fn=self.seed_worker,
             generator=self.g,
         )
-    
+
     def test(self):
         assert self.model is not None
         assert self.criterion is not None
@@ -47,12 +48,20 @@ class FastBlindNetTester(BaseInferencer):
         total_samples = 0
         self.model.eval()
         with torch.no_grad():
-            for batch_index, (noisy, clean, _) in enumerate(pbar, start=1):
+            for batch_index, (noisy, clean, mask) in enumerate(pbar, start=1):
+                breakpoint()
                 noisy = noisy.to(self.opts.device)
                 clean = clean.to(self.opts.device)
-                outputs = self.model(noisy)
-                # glance([noisy[0,:,:,:],clean[0,:,:,:],outputs[0,:,:,:]],title=['noisy','clean','output'])
-                loss = self.criterion(outputs, clean)
+                mask = mask.to(self.opts.device)
+                grad_clean_x = kornia.filters.filter2d(clean,torch.tensor([[[ 1,  2,  1],[ 0,  0,  0],[-1, -2, -1]]]),border_type='replicate')
+                grad_clean_y = kornia.filters.filter2d(clean,torch.tensor([[[ 1,  0, -1],[ 2,  0, -2],[ 1,  0, -1]]]),border_type='replicate')
+                outputs = self.model(torch.cat((noisy, mask), dim=1))
+                grad_out_x = kornia.filters.filter2d(outputs,torch.tensor([[[ 1,  2,  1],[ 0,  0,  0],[-1, -2, -1]]]),border_type='replicate')
+                grad_out_y = kornia.filters.filter2d(outputs,torch.tensor([[[ 1,  0, -1],[ 2,  0, -2],[ 1,  0, -1]]]),border_type='replicate')
+                loss_overview = self.criterion(outputs, clean)
+                loss_blind = self.criterion(outputs[mask==1.0], clean[mask==1.0]) / (mask.sum()) * (self.opts.width * self.opts.height)
+                loss_grad = self.criterion(grad_clean_x**2 + grad_clean_y**2, grad_out_x**2 + grad_out_y**2)
+                loss = loss_blind + loss_overview + loss_grad
                 running_loss += loss.item() * clean.size(0)
                 total_samples += clean.size(0)
                 pbar.set_description(f"Test Epoch {batch_index}")
