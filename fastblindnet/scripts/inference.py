@@ -29,9 +29,9 @@ class FastBlindNetInferencer(BaseInferencer):
         else:
             stack_input_tensor = input_tensor.unsqueeze(0)
         output_tensor = self.model(stack_input_tensor).squeeze(0)
-        out_add_input = torch.zeros_like(input_tensor)
-        out_add_input[~mask_tensor.bool()] = input_tensor[~mask_tensor.bool()]
-        out_add_input[mask_tensor.bool()] = output_tensor[mask_tensor.bool()]
+        # out_add_input = torch.zeros_like(input_tensor)
+        # out_add_input[~mask_tensor.bool()] = input_tensor[~mask_tensor.bool()]
+        # out_add_input[mask_tensor.bool()] = output_tensor[mask_tensor.bool()]
 
         m7 = MedianPool2d(kernel_size=7)
         m5 = MedianPool2d(kernel_size=5)
@@ -44,14 +44,14 @@ class FastBlindNetInferencer(BaseInferencer):
         ssim_out = ssim(output_tensor.unsqueeze(0),gt_tensor.unsqueeze(0),7).mean()
         # breakpoint()
         glance(
-            image=[input_tensor, gt_tensor, md_image, output_tensor, out_add_input,
-                   input_tensor, gt_tensor, md_image, output_tensor, out_add_input],
-            title=['Input', 'GT', f'md\npsnr={psnr_md}\nssim={ssim_md}', f'Output\npsnr={psnr_out}\nssim={ssim_out}', 'In+Out', 
-                   'Input', 'GT', f'md\npsnr={psnr_md}\nssim={ssim_md}', f'Output\npsnr={psnr_out}\nssim={ssim_out}', 'In+Out'],
-            auto_contrast=[True,True,True,True,True,
-                           False,False,False,False,False],
-            shape=(2,5),
+            image=[input_tensor, gt_tensor, md_image, output_tensor, 
+                   10*torch.abs(gt_tensor-md_image), 10*torch.abs(gt_tensor-output_tensor), torch.abs(gt_tensor-md_image), torch.abs(gt_tensor-output_tensor)],
+            title=['Input', 'GT', f'Median\npsnr={psnr_md}\nssim={ssim_md}', f'Output\npsnr={psnr_out}\nssim={ssim_out}', 
+                   'Difference Median * 10', 'Difference Output * 10','Difference Median', 'Difference Output'],
+            auto_contrast=[False,False,False,False,False,False,False,False],
+            shape=(2,4),
             suptitle=f'{self.opts.model_path}',
+            clip=True
         )
 
 @click.command()
